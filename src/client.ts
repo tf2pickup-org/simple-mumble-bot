@@ -63,6 +63,7 @@ interface ConnectedClient extends Client {
   socket: MumbleSocket;
   session: number;
   user: User;
+  self: User;
 }
 
 export class Client extends TypedEventEmitter<Events, Events> {
@@ -85,8 +86,16 @@ export class Client extends TypedEventEmitter<Events, Events> {
 
   /**
    * The currently logged-in user.
+   * @deprecated Use Client.self
    */
   get user() {
+    return this.self;
+  }
+
+  /**
+   * The currently logged-in user.
+   */
+  get self() {
     if (!this.session) {
       return undefined;
     }
