@@ -248,19 +248,18 @@ export class Channel {
   }
 
   async saveAcl(acl: ACL) {
-    this.client.assertConnected();
-    await Promise.all([
-      this.client.command('saveAcl', {
-        sendPacket: [ACL, ACL.create({ ...acl, channelId: this.id })],
-        expectPacket: [ACL, ({ channelId }) => channelId === this.id],
-      }),
-      this.client.socket.send(
-        ACL,
-        ACL.create({
-          channelId: this.id,
-          query: true,
-        }),
-      ),
-    ]);
+    this.client.command('saveAcl', {
+      sendPackets: [
+        [ACL, ACL.create({ ...acl, channelId: this.id })],
+        [
+          ACL,
+          ACL.create({
+            channelId: this.id,
+            query: true,
+          }),
+        ],
+      ],
+      expectPacket: [ACL, ({ channelId }) => channelId === this.id],
+    });
   }
 }
