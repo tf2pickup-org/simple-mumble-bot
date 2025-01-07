@@ -48,10 +48,21 @@ import { Events } from './events';
 import { MessageType } from '@protobuf-ts/runtime';
 import { CommandTimeout } from './config';
 
-interface CommandProps<Send extends object, Return extends object> {
-  expectPacket: [MessageType<Return>, (packet: Return) => boolean];
-  sendPacket: [MessageType<Send>, Send];
-}
+type PacketTuple<T extends object> = [MessageType<T>, T];
+type ManyPackets<T extends object[]> = { [K in keyof T]: PacketTuple<T[K]> };
+
+type CommandProps<
+  Send extends object,
+  Return extends object,
+  SendMore extends object[] = [],
+> = { expectPacket: [MessageType<Return>, (packet: Return) => boolean] } & (
+  | {
+      sendPacket: PacketTuple<Send>;
+    }
+  | {
+      sendPackets: ManyPackets<[Send, ...SendMore]>;
+    }
+);
 
 const defaultOptions: Partial<ClientOptions> = {
   port: 64738,
@@ -192,16 +203,17 @@ export class Client extends TypedEventEmitter<Events, Events> {
    * Wraps sending and receiving a packet in a convenient method.
    * Handles denied permissions response as well as command timeout.
    */
-  async command<Send extends object, Return extends object>(
-    name: string,
-    { sendPacket, expectPacket }: CommandProps<Send, Return>,
-  ) {
+  async command<
+    Send extends object,
+    Return extends object,
+    SendMore extends object[] = [],
+  >(name: string, props: CommandProps<Send, Return, SendMore>) {
     this.assertConnected();
     const ret = lastValueFrom(
       race(
         this.socket.packet.pipe(
-          filterPacket(expectPacket[0]),
-          filter(expectPacket[1]),
+          filterPacket(props.expectPacket[0]),
+          filter(props.expectPacket[1]),
           take(1),
           timeout({
             first: CommandTimeout,
@@ -217,7 +229,13 @@ export class Client extends TypedEventEmitter<Events, Events> {
       ),
     );
 
-    await this.socket.send(sendPacket[0], sendPacket[1]);
+    if ('sendPackets' in props) {
+      for (const packet of props.sendPackets) {
+        await this.socket.send(packet[0], packet[1]);
+      }
+    } else {
+      await this.socket.send(props.sendPacket[0], props.sendPacket[1]);
+    }
     return ret;
   }
 
@@ -237,17 +255,13 @@ export class Client extends TypedEventEmitter<Events, Events> {
    */
   async deregisterUser(userId: number): Promise<void> {
     this.assertConnected();
-    await Promise.all([
-      this.command('deregisterUser', {
-        sendPacket: [
-          UserList,
-          UserList.create({ users: [{ userId, name: undefined }] }),
-        ],
-        expectPacket: [UserList, () => true],
-      }),
-      // FIXME
-      this.socket.send(UserList, UserList.create()),
-    ]);
+    this.command('deregisterUser', {
+      sendPackets: [
+        [UserList, UserList.create({ users: [{ userId, name: undefined }] })],
+        [UserList, UserList.create()],
+      ],
+      expectPacket: [UserList, () => true],
+    });
   }
 
   /**
@@ -255,18 +269,17 @@ export class Client extends TypedEventEmitter<Events, Events> {
    */
   async renameRegisteredUser(userId: number, name: string): Promise<void> {
     this.assertConnected();
-    await Promise.all([
-      this.command('renameRegisteredUser', {
-        sendPacket: [UserList, UserList.create({ users: [{ userId, name }] })],
-        expectPacket: [UserList, () => true],
-      }),
-      // FIXME
-      // we need to send another packet, so we can wait on the expected UserList packet
-      // we cannot just listen for a UserState packet, as the user we are renaming
-      // may be offline
-      // unfortunately, this re-sends the entire list
-      this.socket.send(UserList, UserList.create()),
-    ]);
+    this.command('renameRegisteredUser', {
+      sendPackets: [
+        [UserList, UserList.create({ users: [{ userId, name }] })],
+        // we need to send another packet, so we can wait on the expected UserList packet
+        // we cannot just listen for a UserState packet, as the user we are renaming
+        // may be offline
+        // unfortunately, this re-sends the entire list
+        [UserList, UserList.create()],
+      ],
+      expectPacket: [UserList, () => true],
+    });
   }
 
   /**
