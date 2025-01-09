@@ -40,6 +40,15 @@ export class UserManager {
     return this._users.get(session);
   }
 
+  /**
+   * Finds a user by their name.
+   * @param name The name of the user to look for.
+   * @returns User (if found) or undefined.
+   */
+  byName(name: string): User | undefined {
+    return Array.from(this._users.values()).find(u => u.name === name);
+  }
+
   findAll(predicate: (user: User) => boolean): User[] {
     return Array.from(this._users.values()).filter(predicate);
   }
